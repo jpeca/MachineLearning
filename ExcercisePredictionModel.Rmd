@@ -1,0 +1,95 @@
+---
+title: "Weight Lifting Exercises Prediction"
+author: "Predrag Jovanovic"
+date: "Friday, July 24, 2015"
+output: html_document
+subtitle: Project for Coursera Machine Learning Course
+---
+
+## Introduction
+
+In this project we will try to a build model for prediction the manner in which a practitioner did weight lifting exercise from accelerometer data. The dataset used comes from the [Human Activity Recognition](http://groupware.les.inf.puc-rio.br/har) web page. 
+Dataset contains measurements form accelerometers on the belt, forearm and dumbbell of six males. We want to classify barbell lifts into one of the following classes:
+
+* exactly according to the specification - Class A,
+* throwing the elbows to the front - Class B,
+* lifting the dumbbell only halfway - Class C, 
+* lowering the dumbbell only halfway - Class D  and 
+* throwing the hips to the front - Class E.
+
+## Data preparation
+
+First, we load the caret library and the two datasets:
+```{r}
+# Load required packages and datesets 
+library(caret)
+trainExc <- read.csv("pml-training.csv", na.strings=c("NA", "#DIV/0!", "")) # training dataset
+testExc <- read.csv("pml-testing.csv", na.strings=c("NA", "#DIV/0!", ""))   # test dataset 
+dim (trainExc)
+```
+
+A quick look at the training dataset pointed a lot of columns with NA (empty and invalid entries are also converted to NA during load). The next code remove this columns from dataset. Also for prediction purposes we excluded variables that are not sensor reading - like timestamp, windows. However in data set we leave username as expect that it could be useful for prediction model.
+
+```{r}
+# Remove columns with too many NAs in train data set  - more than 40%
+colNA <- colSums(is.na(trainExc)) < nrow(trainExc)*0.4
+trainExc <- trainExc[,colNA] 
+testExc <- testExc[, colNA]
+# Remove time stemps and window variables
+dfTrain <- trainExc[,c(2, 8:60)]
+dfTst <- testExc[,c(2, 8:60)]
+```
+
+Next step in pre-processing data is to try to reduce number of used columns (54) for model and identify key predictors for our model by principal component analysis. After reducing numbers of columns for sensor readings we return columns for user name and  classe (output result) in training data set.
+
+```{r}
+# Reduce columns in training and testing datasets by principal component
+preproc <- preProcess(dfTrain[,c(-1,-54)], method="pca")
+tr <- predict(preproc, dfTrain[,c(-1,-54)])
+tr <- cbind(tr, dfTrain[,c(1,54)])
+tst <- predict(preproc, dfTst[,c(-1,-54)])
+tst <- cbind(tst, dfTst[,c(1,54)])
+```
+
+During data preparation we applied same steps on train and test datasets.
+
+## Cross validation and training
+
+For training purposes we split the final training dataset from previous step in two sets -  one for training and one for cross validation. The cross validation dataset will contain 30% of the final training dataset. After we will create our model, we will use the cross validation data to test the accuracy of the model.
+
+```{r}
+# Create CV data set from training
+set.seed(3234)
+inTrain <- createDataPartition(tr$classe, p = 0.7, list = FALSE)
+training <- tr[inTrain,]
+testing <- tr[-inTrain,]
+```
+
+## Create model
+
+We create a model using the Random Forests algorithm. For trControl option, we use k-fold cross-validation to subsample the data with 4 folds instead of default bootstrapping method which consumes too many resources. 
+
+```{r}
+ctrl <- trainControl(method="cv", number=4) # use k-fold cross validation instead default bootstraping 
+modelFit <- train(classe~., data=training, method="rf", trControl=ctrl)
+```
+
+## Prediction 
+
+Using cross-validation data that we prepared, we predict manner in which a practitioner did exercises with our final model and compare the results to the true outcome.
+
+```{r}
+# Use cross-validaiton to estimate out of sample error for the model
+predCV <- predict(modelFit, newdata=testing)
+confusionMatrix(testing$classe, predCV)
+```
+
+The out-of-sample error is 1 - accuracy, i.e. 0.025. 
+
+Finally, we apply our model to predict manner in which a practitioner did exercises (classe variable) for twenty observations from original testing dataset.
+
+```{r}
+# Predict on test dataset
+answers <- predict(modelFit, newdata=tst)
+print(answers)
+```
